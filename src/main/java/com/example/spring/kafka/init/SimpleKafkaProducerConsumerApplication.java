@@ -11,6 +11,8 @@ import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.util.function.Tuple2;
@@ -75,8 +77,16 @@ class Consumer {
 		msgCounter = msgCounter + 1;
 	}
 
-	@KafkaListener(topics = {"hobbits"}, groupId = "spring-init-two")
+	@KafkaListener(topics = {"hobbits"}, groupId = "spring-init-two")//, containerFactory = "kafkaManualAckListenerContainerFactory")
 	public void consume(ConsumerRecord<Integer, String> quote){
 		System.out.println("received 2 = " + quote);
+	}
+
+	@KafkaListener(topics = {"hobbits"}, groupId = "spring-init-three")
+	public void consume(ConsumerRecord<Integer, String> quote,
+						@Header(KafkaHeaders.RECEIVED_PARTITION_ID) int partition,
+						@Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
+						@Header(KafkaHeaders.RECEIVED_TIMESTAMP) long ts){
+		System.out.println("received 3 = " + quote + "topic: " + topic + "partition: " + partition + "ts: " + ts);
 	}
 }
