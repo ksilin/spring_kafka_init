@@ -64,7 +64,7 @@ class CPContainerTests {
         createTopics("hobbits");
     }
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(KafkaConsumer.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(CPContainerTests.class);
     private static String kafkaTestGourp = "containerKafkaTestGourp";
     @Autowired
     private Consumer c;
@@ -86,7 +86,7 @@ class CPContainerTests {
         var groups = result.join();//thenApply(groups -> groups.forEach(System.out::println));
         groups.forEach(System.out::println);
         LOGGER.info("done: " + groups);
-        await().until(() ->c.msgCounter > 2);
+        await().until(() -> c.msgCounter > 2);
         //assertTrue(c.msgCounter > 0);
     }
 
@@ -117,42 +117,28 @@ class CPContainerTests {
             var futures = gr.stream().map((s) -> {
                         var future = admin.listConsumerGroupOffsets(s).partitionsToOffsetAndMetadata();
                         var compFuture = future.toCompletionStage().toCompletableFuture();
-
-                BiFunction<Map<TopicPartition, OffsetAndMetadata>, Throwable, String> failed_to_retrieve_consumer_groups = (BiFunction<Map<TopicPartition, OffsetAndMetadata>, Throwable, String>) (data, ex) -> {
-                    if (ex != null) {
-                        var failedMsg = String.format("failed to retrieve offsets for group %s", s);
-                        LOGGER.warn(failedMsg);
-                        return failedMsg;
-                    } else {
-                        String msg = String.format("offsets for %s: %s", s, data);
-                        LOGGER.info(msg);
-                        return msg;
+                        BiFunction<Map<TopicPartition, OffsetAndMetadata>, Throwable, String> failed_to_retrieve_consumer_groups = (BiFunction<Map<TopicPartition, OffsetAndMetadata>, Throwable, String>) (data, ex) -> {
+                            if (ex != null) {
+                                var failedMsg = String.format("failed to retrieve offsets for group %s", s);
+                                LOGGER.warn(failedMsg);
+                                return failedMsg;
+                            } else {
+                                String msg = String.format("offsets for %s: %s", s, data);
+                                LOGGER.info(msg);
+                                return msg;
+                            }
+                        };
+                        return compFuture.handle(failed_to_retrieve_consumer_groups);
                     }
-                };
-                CompletableFuture<String> handled = compFuture.handle(failed_to_retrieve_consumer_groups);
-                return handled;
-                    }
-
             );
-            //var futureL = futures.collect(Collectors.toList());
-            CompletableFuture<String>[] futureA = futures.toArray(CompletableFuture[]::new);//collect(Collectors.toList());
+            CompletableFuture<String>[] futureA = futures.toArray(CompletableFuture[]::new);
             var futureL = Arrays.asList(futureA);
-            //CompletableFuture<String>[] futureA = futureL.toArray(new CompletableFuture[futureL.size()]);
-            var result2 = CompletableFuture.allOf(futureA);
-            var result = result2.thenApply(f -> {
-                        return futureL.stream().map(CompletableFuture::join)
-                                .collect(Collectors.toList());
-                    });
-
-                    //.thenAccept(ignored -> {
-                    //    for (CompletableFuture<String> stringCompletableFuture : futureA) {
-                    //        stringCompletableFuture.join();
-                    //    }
-                    //});
-                    //.map(CompletableFuture::join)
-                    //.collect(Collectors.toList());
-
-
+            var allDone = CompletableFuture.allOf(futureA);
+            var result = allDone.thenApply(
+                    ignoredVoid ->
+                            futureL.stream().map(CompletableFuture::join)
+                                    .collect(Collectors.toList())
+            );
             //r.forEach((g) -> LOGGER.info("consumer group offset for {}", g));
             return result;
         }
