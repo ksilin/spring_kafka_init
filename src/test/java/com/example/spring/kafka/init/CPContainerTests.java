@@ -14,6 +14,7 @@ import org.apache.kafka.common.serialization.IntegerDeserializer;
 import org.apache.kafka.common.serialization.IntegerSerializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
@@ -107,40 +109,75 @@ class CPContainerTests {
         }
     }
 
+    private static BiFunction<Map<TopicPartition, OffsetAndMetadata>, Throwable, String> groupOffsetHandler(String s) {
+        return (data, ex) -> {
+            if (ex != null) {
+                var failedMsg = String.format("failed to retrieve offsets for group %s with %s", s, ex);
+                LOGGER.warn(failedMsg);
+                return failedMsg;
+            } else {
+                String msg = String.format("offsets for %s: %s", s, data);
+                LOGGER.info(msg);
+                return msg;
+            }
+        };
+    }
+
+    private static <T> BiFunction<T, Throwable, String> resultToString(String description,  String name) {
+        return (data, ex) -> {
+            if (ex != null) {
+                var failedMsg = String.format("failed to %s for %s with %s", description, name, ex);
+                LOGGER.warn(failedMsg);
+                return failedMsg;
+            } else {
+                String msg = String.format("success: %s for %s: %s", description, name, data);
+                LOGGER.info(msg);
+                return msg;
+            }
+        };
+    }
+
+    @SneakyThrows
+    private static List<String> getConsumerGroups2(String... groups) {
+        var gr = Arrays.asList(groups);
+        printConsumerGroupsDescriptions(gr);
+        try (var admin = AdminClient.create(Map.of(BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers()))) {
+            var futures = gr.stream().map((s) -> {
+                        var future = admin.listConsumerGroupOffsets(s).partitionsToOffsetAndMetadata();
+                        return future.toCompletionStage().toCompletableFuture().handle(resultToString("retrieve offsets for group", s));
+                    }
+            ).toList();
+            return futures.stream().map(CompletableFuture::join).toList();
+        }
+    }
+
     @SneakyThrows
     private static CompletableFuture<List<String>> getConsumerGroups(String... groups) {
         var gr = Arrays.asList(groups);
+        printConsumerGroupsDescriptions(gr);
         try (var admin = AdminClient.create(Map.of(BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers()))) {
-            var descriptions = admin.describeConsumerGroups(gr);
-            descriptions.all().get().forEach((k, v) -> LOGGER.info("group {}: {}", k, v));
-
             var futures = gr.stream().map((s) -> {
                         var future = admin.listConsumerGroupOffsets(s).partitionsToOffsetAndMetadata();
-                        var compFuture = future.toCompletionStage().toCompletableFuture();
-                        BiFunction<Map<TopicPartition, OffsetAndMetadata>, Throwable, String> failed_to_retrieve_consumer_groups = (BiFunction<Map<TopicPartition, OffsetAndMetadata>, Throwable, String>) (data, ex) -> {
-                            if (ex != null) {
-                                var failedMsg = String.format("failed to retrieve offsets for group %s", s);
-                                LOGGER.warn(failedMsg);
-                                return failedMsg;
-                            } else {
-                                String msg = String.format("offsets for %s: %s", s, data);
-                                LOGGER.info(msg);
-                                return msg;
-                            }
-                        };
-                        return compFuture.handle(failed_to_retrieve_consumer_groups);
+                        return future.toCompletionStage().toCompletableFuture().handle(resultToString("retrieve offsets for group", s));
                     }
-            );
+            ).toList();
             CompletableFuture<String>[] futureA = futures.toArray(CompletableFuture[]::new);
-            var futureL = Arrays.asList(futureA);
             var allDone = CompletableFuture.allOf(futureA);
-            var result = allDone.thenApply(
-                    ignoredVoid ->
-                            futureL.stream().map(CompletableFuture::join)
-                                    .collect(Collectors.toList())
-            );
-            //r.forEach((g) -> LOGGER.info("consumer group offset for {}", g));
-            return result;
+            return allDone.thenApply(joinSourceFutures(futures));
+        }
+    }
+
+    @NotNull
+    private static <T> Function<Void, List<T>> joinSourceFutures(List<CompletableFuture<T>> futures) {
+        return ignoredVoid ->
+                futures.stream().map(CompletableFuture::join)
+                        .collect(Collectors.toList());
+    }
+
+    private static void printConsumerGroupsDescriptions(List<String> groups) {
+        try (var admin = AdminClient.create(Map.of(BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers()))) {
+            var descriptions = admin.describeConsumerGroups(groups);
+            descriptions.all().toCompletionStage().toCompletableFuture().join().forEach((k, v) -> LOGGER.info("group {}: {}", k, v));
         }
     }
 
