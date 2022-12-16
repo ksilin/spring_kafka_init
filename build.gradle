@@ -2,6 +2,7 @@ plugins {
 	id 'org.springframework.boot' version '2.6.6'
 	id 'io.spring.dependency-management' version '1.0.11.RELEASE'
 	id 'java'
+	id 'com.google.cloud.tools.jib' version '3.2.1'
 }
 
 group = 'com.example'
@@ -13,6 +14,8 @@ configurations {
 		extendsFrom annotationProcessor
 	}
 }
+
+jib.to.image = '492737776546.dkr.ecr.us-east-1.amazonaws.com/ksilin_test'
 
 repositories {
 	mavenCentral()
